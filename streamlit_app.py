@@ -1,32 +1,35 @@
 import streamlit as st
+import pandas as pd
 import math
+from datetime import datetime
 
-st.title("ラウンジ給与計算アプリ")
+st.set_page_config(page_title="【支店長用】給与管理システム", layout="wide")
+st.title("📊 支店長用 給与管理ダッシュボード")
 
-# --- 入力セクション ---
-st.header("1. 勤務データの入力")
-col1, col2 = st.columns(2)
+# --- 設定（スタッフリストなど） ---
+staff_list = ["スタッフA", "スタッフB", "スタッフC", "共通/その他"]
 
-with col1:
+# --- サイドバー：入力セクション ---
+with st.sidebar:
+    st.header("📝 データ入力")
+    target_staff = st.selectbox("スタッフを選択", staff_list)
+    work_date = st.date_input("勤務日", datetime.now())
+    
     base_hourly_wage = st.number_input("時給 (円)", min_value=0, value=3000, step=100)
     working_hours = st.number_input("勤務時間 (h)", min_value=0.0, value=4.0, step=0.5)
+    
+    st.subheader("手当（バック）")
+    douhan_count = st.number_input("同伴回数", min_value=0, value=0)
+    shimei_count = st.number_input("指名回数", min_value=0, value=0)
+    shimei_unit_price = st.number_input("指名手当単価 (円)", min_value=0, value=1000)
+    
+    etc_deduction = st.number_input("その他控除（送迎等）", min_value=0, value=0)
+    
+    submit_button = st.button("このデータを記録する")
 
-with col2:
-    douhan_count = st.number_input("同伴回数", min_value=0, value=0, step=1)
-    shimei_count = st.number_input("指名回数", min_value=0, value=0, step=1)
-    shimei_unit_price = st.number_input("指名手当単価 (円)", min_value=0, value=1000, step=100)
-
-# --- 計算ロジック ---
-# 1. 基本給とバックの計算
-basic_pay = base_hourly_wage * working_hours
-douhan_pay = douhan_count * 3000
-shimei_pay = shimei_count * shimei_unit_price
-total_supply = basic_pay + douhan_pay + shimei_pay # 総支給額
-
-# 2. 控除（税金・手数料）の計算
+# --- 計算ロジック（前回の条件を維持） ---
 def calculate_deduction(amount):
-    if amount < 5000:
-        return 0
+    if amount < 5000: return 0
     elif amount <= 5900: return 100
     elif amount <= 6900: return 200
     elif amount <= 7900: return 300
@@ -54,27 +57,43 @@ def calculate_deduction(amount):
     elif amount <= 29400: return 2500
     elif amount <= 30400: return 2600
     else:
-        # 30400円超の場合: (支給額 - 5000) * 10.21% の切り上げ
         return math.ceil((amount - 5000) * 0.1021)
 
+# 計算の実行
+basic_pay = base_hourly_wage * working_hours
+total_back = (douhan_count * 3000) + (shimei_count * shimei_unit_price)
+total_supply = basic_pay + total_back
 deduction = calculate_deduction(total_supply)
-take_home_pay = total_supply - deduction
+final_pay = total_supply - deduction - etc_deduction
 
-# --- 結果表示セクション ---
-st.header("2. 計算結果")
-st.subheader(f"本日のお給料（手取り）: {int(take_home_pay):,} 円")
+# --- データ保存（簡易的にセッション状態に保存） ---
+if "data_log" not in st.session_state:
+    st.session_state.data_log = pd.DataFrame(columns=["日付", "スタッフ名", "支給額", "控除額", "手取り"])
 
-with st.expander("詳細内訳"):
-    st.write(f"・基本給: {int(basic_pay):,} 円")
-    st.write(f"・同伴手当: {int(douhan_pay):,} 円")
-    st.write(f"・指名手当: {int(shimei_pay):,} 円")
-    st.write(f"・総支給額: {int(total_supply):,} 円")
-    st.write(f"・控除額（源泉等）: {int(deduction):,} 円")
+if submit_button:
+    new_data = pd.DataFrame([[work_date, target_staff, total_supply, deduction + etc_deduction, final_pay]], 
+                            columns=["日付", "スタッフ名", "支給額", "控除額", "手取り"])
+    st.session_state.data_log = pd.concat([st.session_state.data_log, new_data], ignore_index=True)
+    st.success(f"{target_staff} のデータを保存しました")
 
-# --- 追加オプション（必要に応じて） ---
-# 送迎代などの固定引きがある場合
-st.header("3. その他調整")
-etc_deduction = st.number_input("その他引かれるもの (送迎・ヘアメなど)", min_value=0, value=0, step=500)
-final_amount = take_home_pay - etc_deduction
-if etc_deduction > 0:
-    st.success(f"最終受け取り額: {int(final_amount):,} 円")
+# --- メイン画面：分析・一覧 ---
+tab1, tab2 = st.tabs(["全体サマリー", "履歴データ"])
+
+with tab1:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("総支払額", f"{int(st.session_state.data_log['支給額'].sum()):,} 円")
+    col2.metric("総控除額", f"{int(st.session_state.data_log['控除額'].sum()):,} 円")
+    col3.metric("スタッフ数", len(st.session_state.data_log["スタッフ名"].unique()))
+
+    if not st.session_state.data_log.empty:
+        st.subheader("スタッフ別 支給ランキング")
+        staff_summary = st.session_state.data_log.groupby("スタッフ名")["手取り"].sum()
+        st.bar_chart(staff_summary)
+
+with tab2:
+    st.subheader("入出金履歴一覧")
+    st.dataframe(st.session_state.data_log, use_container_width=True)
+    
+    # CSVダウンロード機能
+    csv = st.session_state.data_log.to_csv(index=False).encode('utf_8_sig')
+    st.download_button("CSVとしてダウンロード", csv, "salary_data.csv", "text/csv")
