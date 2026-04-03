@@ -129,4 +129,29 @@ if submit_button:
         final_pay
     ]], columns=["日付", "スタッフ名", "出勤", "退勤", "勤務時間", "時給", "支給額", "控除額", "手取り"])
     st.session_state.data_log = pd.concat([st.session_state.data_log, new_data], ignore_index=True)
-    st
+    st.success(f"{selected_staff} のデータを記録しました")
+
+# --- メイン画面：表示エリア ---
+tab1, tab2, tab3 = st.tabs(["📊 全体サマリー", "📋 履歴データ", "👭 登録スタッフ一覧"])
+
+with tab1:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("総支払額", f"{int(st.session_state.data_log['支給額'].sum()):,} 円")
+    col2.metric("総控除額", f"{int(st.session_state.data_log['控除額'].sum()):,} 円")
+    col3.metric("登録スタッフ数", len(st.session_state.staff_data))
+
+    if not st.session_state.data_log.empty:
+        st.subheader("スタッフ別 累計手取り額")
+        staff_summary = st.session_state.data_log.groupby("スタッフ名")["手取り"].sum()
+        st.bar_chart(staff_summary)
+
+with tab2:
+    st.subheader("給料計算履歴")
+    st.dataframe(st.session_state.data_log, use_container_width=True)
+    csv = st.session_state.data_log.to_csv(index=False).encode('utf_8_sig')
+    st.download_button("CSVを書き出す", csv, f"salary_report.csv", "text/csv")
+
+with tab3:
+    st.subheader("登録済みスタッフ・時給一覧")
+    staff_df = pd.DataFrame(list(st.session_state.staff_data.items()), columns=["名前", "基本時給"])
+    st.table(staff_df)
