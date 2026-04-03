@@ -17,17 +17,20 @@ if "data_log" not in st.session_state:
 with st.sidebar:
     st.header("⚙️ 設定・管理")
     
-    # スタッフの追加・削除
+    # スタッフの追加
     new_staff_name = st.text_input("新規スタッフ名を入力")
     if st.button("スタッフを追加"):
         if new_staff_name and new_staff_name not in st.session_state.staff_list:
             st.session_state.staff_list.append(new_staff_name)
             st.success(f"{new_staff_name}を追加しました")
+            st.rerun()
     
+    # スタッフの削除
     delete_staff_name = st.selectbox("削除するスタッフを選択", ["選択してください"] + st.session_state.staff_list)
     if st.button("選択したスタッフを削除"):
         if delete_staff_name != "選択してください":
             st.session_state.staff_list.remove(delete_staff_name)
+            st.sidebar.info(f"{delete_staff_name}を削除しました")
             st.rerun()
 
     st.markdown("---")
@@ -49,7 +52,6 @@ with st.sidebar:
     end_dt = datetime.combine(work_date, end_time)
     
     if end_dt <= start_dt:
-        # 退勤が出勤より早い（または同じ）場合は翌日とみなす
         end_dt += timedelta(days=1)
     
     diff_hours = (end_dt - start_dt).total_seconds() / 3600
@@ -135,4 +137,8 @@ with tab1:
         st.bar_chart(staff_summary)
 
 with tab2:
-    st.
+    st.subheader("給料計算履歴")
+    st.dataframe(st.session_state.data_log, use_container_width=True)
+    
+    csv = st.session_state.data_log.to_csv(index=False).encode('utf_8_sig')
+    st.download_button("CSVとして保存", csv, f"salary_report_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
