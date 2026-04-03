@@ -59,7 +59,8 @@ with st.sidebar:
     douhan = st.number_input("同伴回数", min_value=0)
     shimei = st.number_input("指名回数", min_value=0)
     shimei_p = st.number_input("指名単価", value=1000)
-    etc_deduct = st.number_input("その他控除(送迎等)", min_value=0)
+    # ↓ここを etc_deduction に修正しました
+    etc_deduction = st.number_input("その他控除(送迎等)", min_value=0)
 
     if st.button("✅ データを保存"):
         s_dt = datetime.combine(work_date, start_time)
@@ -68,7 +69,8 @@ with st.sidebar:
         h = (e_dt - s_dt).total_seconds() / 3600
         gross = (current_wage * h) + (douhan * 3000) + (shimei * shimei_p)
         tax = calculate_deduction(gross)
-        net = gross - tax - etc_deduct
+        # ↓ここも etc_deduction に合わせました
+        net = gross - tax - etc_deduction
         
         new_entry = pd.DataFrame([[
             work_date, selected_staff, start_time.strftime("%H:%M"), end_time.strftime("%H:%M"),
@@ -81,19 +83,16 @@ with st.sidebar:
 st.title("📊 月別・スタッフ別 給与集計")
 
 if not st.session_state.data_log.empty:
-    # データ型を確実に日付にする
     df = st.session_state.data_log.copy()
+    # 日付列を確実にdatetime型に変換
     df['日付'] = pd.to_datetime(df['日付'])
     df['年月'] = df['日付'].dt.strftime('%Y-%m')
 
-    # --- 月選択フィルタ ---
     months = sorted(df['年月'].unique(), reverse=True)
     target_month = st.selectbox("表示する月を選択", months)
     
-    # 選択した月のデータに絞り込み
     month_df = df[df['年月'] == target_month]
 
-    # --- 月間サマリー表示 ---
     c1, c2, c3 = st.columns(3)
     c1.metric(f"{target_month} 総支給額", f"{int(month_df['支給額'].sum()):,} 円")
     c2.metric(f"{target_month} 総控除額", f"{int(month_df['控除額'].sum()):,} 円")
@@ -101,25 +100,23 @@ if not st.session_state.data_log.empty:
 
     st.markdown("---")
 
-    # --- タブ表示 ---
     tab1, tab2, tab3 = st.tabs(["👥 スタッフ別集計", "📋 月間明細一覧", "⚙️ 設定"])
 
     with tab1:
         st.subheader(f"{target_month} のスタッフ別合計")
-        # スタッフごとに集計
         summary = month_df.groupby("スタッフ名")[["支給額", "控除額", "手取り"]].sum().reset_index()
         st.dataframe(summary.style.format({
             "支給額": "{:,}円", "控除額": "{:,}円", "手取り": "{:,}円"
         }), use_container_width=True)
-        
-        # グラフ表示
         st.bar_chart(summary.set_index("スタッフ名")["支給額"])
 
     with tab2:
         st.subheader(f"{target_month} の全データ（編集可）")
-        edited_month_df = st.data_editor(month_df.drop(columns=['年月']), use_container_width=True, num_rows="dynamic")
+        # 月間明細の表示
+        view_df = month_df.drop(columns=['年月'])
+        edited_month_df = st.data_editor(view_df, use_container_width=True, num_rows="dynamic")
         if st.button("編集内容を反映して保存"):
-            # 元のlogから、当該月以外のデータ + 今回編集した当該月のデータを合体させる
+            # 保存ロジック
             other_month_df = df[df['年月'] != target_month].drop(columns=['年月'])
             st.session_state.data_log = pd.concat([other_month_df, edited_month_df], ignore_index=True)
             st.success("更新しました")
@@ -133,4 +130,4 @@ if not st.session_state.data_log.empty:
             st.session_state.staff_data = dict(zip(edited_staff["名前"], edited_staff["基本時給"]))
             st.rerun()
 else:
-    st.info("データがありません。サイドバーから入力を開始してください。")
+    st.info("データがありません。左のメニューから入力を開始してください。")
