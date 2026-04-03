@@ -6,20 +6,47 @@ from datetime import datetime
 st.set_page_config(page_title="【支店長用】給与管理システム", layout="wide")
 st.title("📊 支店長用 給与管理ダッシュボード")
 
-# --- 設定（スタッフリストなど） ---
-staff_list = ["スタッフA", "スタッフB", "スタッフC", "共通/その他"]
+# --- 1. スタッフ管理機能（セッションで保持） ---
+if "staff_list" not in st.session_state:
+    # 初期メンバー（空でもOK）
+    st.session_state.staff_list = ["スタッフA", "スタッフB"]
 
-# --- サイドバー：入力セクション ---
+if "data_log" not in st.session_state:
+    st.session_state.data_log = pd.DataFrame(columns=["日付", "スタッフ名", "支給額", "控除額", "手取り"])
+
+# --- サイドバー：設定エリア ---
 with st.sidebar:
-    st.header("📝 データ入力")
-    target_staff = st.selectbox("スタッフを選択", staff_list)
+    st.header("⚙️ 設定・管理")
+    
+    # スタッフの追加
+    new_staff_name = st.text_input("新規スタッフ名を入力")
+    if st.button("スタッフを追加"):
+        if new_staff_name and new_staff_name not in st.session_state.staff_list:
+            st.session_state.staff_list.append(new_staff_name)
+            st.success(f"{new_staff_name}を追加しました")
+        else:
+            st.warning("名前を入力してください（または既に存在します）")
+
+    # スタッフの削除
+    delete_staff_name = st.selectbox("削除するスタッフを選択", ["選択してください"] + st.session_state.staff_list)
+    if st.button("選択したスタッフを削除"):
+        if delete_staff_name != "選択してください":
+            st.session_state.staff_list.remove(delete_staff_name)
+            st.sidebar.info(f"{delete_staff_name}を削除しました")
+            st.rerun() # 画面を更新してリストに反映
+
+    st.markdown("---")
+    
+    # --- 2. データ入力セクション ---
+    st.header("📝 給与データ入力")
+    target_staff = st.selectbox("給与計算するスタッフを選択", st.session_state.staff_list)
     work_date = st.date_input("勤務日", datetime.now())
     
     base_hourly_wage = st.number_input("時給 (円)", min_value=0, value=3000, step=100)
     working_hours = st.number_input("勤務時間 (h)", min_value=0.0, value=4.0, step=0.5)
     
     st.subheader("手当（バック）")
-    douhan_count = st.number_input("同伴回数", min_value=0, value=0)
+    douhan_count = st.number_input("同伴回数 (3,000円/回)", min_value=0, value=0)
     shimei_count = st.number_input("指名回数", min_value=0, value=0)
     shimei_unit_price = st.number_input("指名手当単価 (円)", min_value=0, value=1000)
     
@@ -27,7 +54,7 @@ with st.sidebar:
     
     submit_button = st.button("このデータを記録する")
 
-# --- 計算ロジック（前回の条件を維持） ---
+# --- 計算ロジック（ご指定の条件） ---
 def calculate_deduction(amount):
     if amount < 5000: return 0
     elif amount <= 5900: return 100
@@ -59,31 +86,28 @@ def calculate_deduction(amount):
     else:
         return math.ceil((amount - 5000) * 0.1021)
 
-# 計算の実行
+# 計算実行
 basic_pay = base_hourly_wage * working_hours
 total_back = (douhan_count * 3000) + (shimei_count * shimei_unit_price)
 total_supply = basic_pay + total_back
 deduction = calculate_deduction(total_supply)
 final_pay = total_supply - deduction - etc_deduction
 
-# --- データ保存（簡易的にセッション状態に保存） ---
-if "data_log" not in st.session_state:
-    st.session_state.data_log = pd.DataFrame(columns=["日付", "スタッフ名", "支給額", "控除額", "手取り"])
-
+# データ保存
 if submit_button:
     new_data = pd.DataFrame([[work_date, target_staff, total_supply, deduction + etc_deduction, final_pay]], 
                             columns=["日付", "スタッフ名", "支給額", "控除額", "手取り"])
     st.session_state.data_log = pd.concat([st.session_state.data_log, new_data], ignore_index=True)
     st.success(f"{target_staff} のデータを保存しました")
 
-# --- メイン画面：分析・一覧 ---
+# --- メイン画面：表示エリア ---
 tab1, tab2 = st.tabs(["全体サマリー", "履歴データ"])
 
 with tab1:
     col1, col2, col3 = st.columns(3)
     col1.metric("総支払額", f"{int(st.session_state.data_log['支給額'].sum()):,} 円")
     col2.metric("総控除額", f"{int(st.session_state.data_log['控除額'].sum()):,} 円")
-    col3.metric("スタッフ数", len(st.session_state.data_log["スタッフ名"].unique()))
+    col3.metric("登録スタッフ数", len(st.session_state.staff_list))
 
     if not st.session_state.data_log.empty:
         st.subheader("スタッフ別 支給ランキング")
@@ -91,9 +115,8 @@ with tab1:
         st.bar_chart(staff_summary)
 
 with tab2:
-    st.subheader("入出金履歴一覧")
+    st.subheader("給与計算履歴")
     st.dataframe(st.session_state.data_log, use_container_width=True)
     
-    # CSVダウンロード機能
     csv = st.session_state.data_log.to_csv(index=False).encode('utf_8_sig')
-    st.download_button("CSVとしてダウンロード", csv, "salary_data.csv", "text/csv")
+    st.download_button("CSVとして保存", csv, f"salary_report_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
