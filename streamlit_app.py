@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timedelta
 from streamlit_calendar import calendar
 
-st.set_page_config(page_title="ラウンジ給与管理（カレンダー版）", layout="wide")
+st.set_page_config(page_title="ラウンジ給与管理（修正版）", layout="wide")
 
 # --- 1. データの保持設定 ---
 if "staff_data" not in st.session_state:
@@ -19,7 +19,6 @@ if "data_log" not in st.session_state:
 def calculate_deduction(amount):
     if amount < 5000: return 0
     elif amount <= 30400:
-        # 階段式計算（これまでのロジックを維持）
         steps = [
             (5900, 100), (6900, 200), (7900, 300), (8900, 400), (9900, 500),
             (10800, 600), (11800, 700), (12800, 800), (13800, 900), (14800, 1000),
@@ -58,6 +57,7 @@ with st.sidebar:
         tax = calculate_deduction(gross)
         net = gross - tax - etc_deduction
         
+        # 保存時は「日付」をdatetime型のままにする（集計で使うため）
         new_entry = pd.DataFrame([[
             work_date, selected_staff, start_time.strftime("%H:%M"), end_time.strftime("%H:%M"),
             round(h, 2), current_wage, int(gross), int(tax + etc_deduction), int(net)
@@ -72,11 +72,15 @@ st.title("📅 勤務カレンダー管理")
 calendar_events = []
 if not st.session_state.data_log.empty:
     for _, row in st.session_state.data_log.iterrows():
+        # 【重要】カレンダーに渡す辞書データ内の「日付」を文字列に変換する
+        res_dict = row.to_dict()
+        res_dict["日付"] = str(res_dict["日付"]) # datetimeを文字列に変換
+        
         calendar_events.append({
             "title": f"{row['スタッフ名']} ({int(row['手取り']):,}円)",
-            "start": row["日付"].strftime("%Y-%m-%d"),
-            "end": row["日付"].strftime("%Y-%m-%d"),
-            "resource": row.to_dict() # 詳細データを埋め込む
+            "start": str(row["日付"]),
+            "end": str(row["日付"]),
+            "resource": res_dict
         })
 
 calendar_options = {
@@ -90,12 +94,13 @@ calendar_options = {
 }
 
 # カレンダーの表示
-cal = calendar(events=calendar_events, options=calendar_options)
+cal = calendar(events=calendar_events, options=calendar_options, key="calendar")
 
-# カレンダーの日付やイベントをクリックした時の処理
+# カレンダーのイベントをクリックした時の処理
 if cal.get("eventClick"):
     st.markdown("---")
     st.subheader("📌 クリックした日の詳細データ")
+    # 安全にデータを取得
     event_data = cal["eventClick"]["event"]["extendedProps"]["resource"]
     
     col_a, col_b, col_c = st.columns(3)
@@ -122,4 +127,6 @@ with tab1:
         month_df = df[df['年月'] == target_month]
         
         summary = month_df.groupby("スタッフ名")[["支給額", "控除額", "手取り"]].sum().reset_index()
-        st.dataframe(summary, use_container_width=True)
+        st.dataframe(summary.style.format({
+            "支給額": "{:,}円", "控除額": "{:,}円", "手取り": "{:,}円"
+        }), use_container_width=True)
